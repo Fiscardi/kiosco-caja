@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kiosco Caja</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--tx:#1d1d1b;--mu:#6b6a64;--ac:#0f7b5f;--acx:#fff;--ln:#e2e0d8;--rd:#b3261e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#161715;--card:#1f211e;--tx:#ecebe6;--mu:#9a9990;--ac:#3ec99f;--acx:#0b1511;--ln:#33362f;--rd:#ff8a80}}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+h1{font-size:20px;margin:0}h2{font-size:17px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:14px;margin-bottom:12px}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:12px}
+button{font:inherit;border:1px solid var(--ln);background:var(--card);color:var(--tx);padding:9px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}
+button.on,button.p{background:var(--ac);color:var(--acx);border-color:var(--ac);font-weight:600}
+button.d{color:var(--rd)}
+input,select{font:inherit;width:100%;padding:9px;border:1px solid var(--ln);border-radius:9px;background:var(--bg);color:var(--tx)}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--ln);font-size:15px}
+.row:last-child{border:0}.mu{color:var(--mu);font-size:13px}
+.in{color:var(--ac);font-weight:600}.out{color:var(--rd);font-weight:600}
+.big{font-size:26px;font-weight:700}
+.users{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.users button{padding:18px 10px;font-weight:600}
+#cp{display:none}
+@media print{header,.tabs,.noprint{display:none!important}.pk-sheet .card:not(#sheet),.pk-ticket .card:not(#ticket){display:none!important}#ticket{border:0;font-family:monospace}.pk-copy main{display:none!important}.pk-copy #cp{display:block!important}}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* ====== CONFIGURACIÓN: pegá acá los datos de tu proyecto de Supabase ====== */
+var SUPABASE_URL="https://gzjsoukjdhojxijbxqdx.supabase.co";
+var SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6anNvdWtqZGhvanhpamJ4cWR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNzQ1NDQsImV4cCI6MjEwODk1MDU0NH0.STis3Jj3-Epde8B6by3RFeGlyk7m_xTMKqefAVHvRKY";
+var PRICE=40000;
+/* ========================================================================== */
+var sb,K=null,ST=[],me=null,shift=null,tab="",cart=[],pend=null,lastT=null,fdate="",mode="login",pinFor=null;
+var PM=["Efectivo","Transferencia","Tarjeta","Mercado Pago"];
+function $(i){return document.getElementById(i)}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function $$(n){return "$ "+Math.round(Number(n)).toLocaleString("es-AR")}
+function val(i){var e=$(i);return e?e.value.trim():""}
+function hm(t){return new Date(t).toTimeString().slice(0,5)}
+function ld(d){return d.toLocaleDateString("sv-SE")}
+function nowT(){return new Date().toTimeString().slice(0,5)}
+function nm(id){var s=ST.find(function(x){return x.id==id});return s?s.name:"?"}
+function chk(r){if(r.error){alert("Error: "+r.error.message);throw r.error}return r.data}
+function sum(a){return a.reduce(function(t,x){return t+Number(x.amount)},0)}
+function tot(E){var i=sum(E.filter(function(x){return x.kind=="income"})),e=sum(E.filter(function(x){return x.kind=="expense"})),c=sum(E.filter(function(x){return x.kind=="income"&&x.method=="Efectivo"}))-e;return{i:i,e:e,n:i-e,cash:c}}
+function byM(E){return PM.map(function(m){var v=sum(E.filter(function(x){return x.kind=="income"&&x.method==m}));return v?'<div class="row"><span class="mu">Cobrado en '+m+'</span><span>'+$$(v)+'</span></div>':''}).join("")}
+function hdr(){return '<header><h1>🏪 '+esc(K?K.name:"Kiosco Caja")+'</h1><div>'+(me?'<span class="mu">'+esc(me.name)+'</span> <button data-a="switch">Cambiar usuario</button> ':'')+(K?'<button data-a="logout">Salir del kiosco</button>':'')+'</div></header>'}
+async function hash(p,id){var b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(p+id));return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,"0")}).join("")}
+
+/* ---------- Acceso ---------- */
+async function loadKiosk(){K=chk(await sb.from("kiosks").select("*").single());ST=chk(await sb.from("staff").select("*").order("created_at"))}
+async function doLogin(){var r=await sb.auth.signInWithPassword({email:val("em"),password:val("pw")});if(r.error){alert(r.error.message);return}await loadKiosk();render()}
+async function doSignup(){var r=await sb.auth.signUp({email:val("em"),password:val("pw"),options:{data:{kiosk_name:val("kn")||"Mi kiosco"}}});if(r.error){alert(r.error.message);return}
+ if(!r.data.session){alert("Te enviamos un mail para confirmar la cuenta. Confirmalo y después entrá.");mode="login";render();return}await loadKiosk();render()}
+async function enter(u){me=u;tab=u.role=="admin"?"res":"inc";shift=null;if(u.role!="admin"){shift=(await sb.from("shifts").select("*").eq("staff_id",u.id).is("ended_at",null).maybeSingle()).data}}
+function loginView(){var su=mode=="signup";$("app").innerHTML=hdr()+'<div class="card"><h2>'+(su?'Crear cuenta del kiosco':'Entrar al kiosco')+'</h2>'+(su?'<input id="kn" placeholder="Nombre del kiosco" style="margin-bottom:8px">':'')+'<input id="em" type="email" placeholder="Mail del dueño" style="margin-bottom:8px"><input id="pw" type="password" placeholder="Contraseña (mínimo 6)" style="margin-bottom:8px"><div class="g"><button class="p" data-a="'+(su?'signup':'login')+'">'+(su?'Crear cuenta':'Entrar')+'</button><button data-a="mode">'+(su?'Ya tengo cuenta':'Crear cuenta nueva')+'</button></div></div>'}
+function pickView(){var h=hdr()+'<div class="card"><h2>¿Quién sos?</h2><div class="users">'+ST.filter(function(x){return x.active}).map(function(u){return '<button data-a="pick" data-id="'+u.id+'">'+(u.role=="admin"?"🔑 ":"👤 ")+esc(u.name)+'</button>'}).join("")+'</div>';
+ if(pinFor){var nw=!pinFor.pin_hash;h+='<div style="margin-top:12px"><div class="mu">'+(nw?'Primera vez: elegí un PIN de 4 a 6 números':'PIN del administrador')+'</div><div class="g"><input id="pin" type="password" inputmode="numeric" maxlength="6"><button class="p" data-a="pin">'+(nw?'Guardar PIN y entrar':'Entrar')+'</button></div></div>'}
+ $("app").innerHTML=h+'</div>'}
+
+/* ---------- Empleado ---------- */
+async function empView(){
+ var h=hdr();
+ if(!shift){
+  h+='<div class="card"><h2>Iniciar turno</h2><div class="mu">Marcá tu hora de ingreso</div><div class="g"><input id="hs" type="time" value="'+nowT()+'"><button class="p" data-a="start">Empezar caja</button></div></div>';
+  var L=chk(await sb.from("shifts").select("*").eq("staff_id",me.id).not("ended_at","is",null).order("started_at",{ascending:false}).limit(3));
+  if(L.length){var EE=chk(await sb.from("entries").select("*").in("shift_id",L.map(function(x){return x.id})));
+   h+='<div class="card"><h2>Tus últimos turnos</h2>'+L.map(function(s){return '<div class="row"><span>'+s.work_date+' · '+hm(s.started_at)+'–'+hm(s.ended_at)+'</span><b>'+$$(tot(EE.filter(function(e){return e.shift_id==s.id})).n)+'</b></div>'}).join("")+'</div>'}
+  $("app").innerHTML=h;return}
+ var E=chk(await sb.from("entries").select("*").eq("shift_id",shift.id).order("created_at")),t=tot(E);
+ h+='<div class="card"><div class="mu">Turno desde '+hm(shift.started_at)+' hs</div><div class="big">'+$$(t.n)+'</div><div class="mu">Ingresos '+$$(t.i)+' · Gastos '+$$(t.e)+'</div></div>';
+ h+='<div class="tabs">'+[["inc","Ingresos"],["exp","Gastos"],["tic","Ticket"],["ped","Pedido"],["cie","Cierre"]].map(function(x){return '<button class="'+(tab==x[0]?"on":"")+'" data-a="tab" data-t="'+x[0]+'">'+x[1]+'</button>'}).join("")+'</div>';
+ if(tab=="inc"||tab=="exp"){var inc=tab=="inc";
+  h+='<div class="card"><h2>'+(inc?'Registrar ingreso':'Registrar gasto / pago')+'</h2><div class="g"><input id="c" placeholder="Concepto"><input id="w" placeholder="'+(inc?'Quién pagó (opcional)':'A quién se le pagó')+'"></div><div class="g">'+(inc?'<select id="m">'+PM.map(function(x){return '<option>'+x+'</option>'}).join("")+'</select>':'')+'<input id="a" type="number" inputmode="decimal" placeholder="Monto"></div><button class="p" data-a="addentry">Agregar</button></div>';
+  var L2=E.filter(function(x){return x.kind==(inc?"income":"expense")});
+  h+='<div class="card">'+(L2.length?L2.map(function(x){return '<div class="row"><span>'+esc(x.concept)+' <span class="mu">'+(inc?(x.method||"")+(x.counterpart?' · pagó: '+esc(x.counterpart):''):'→ '+esc(x.counterpart||"s/d")+' · pagó '+esc(me.name))+'</span></span><span class="'+(inc?"in":"out")+'">'+$$(x.amount)+' <button class="d" data-a="delentry" data-id="'+x.id+'">✕</button></span></div>'}).join(""):'<div class="mu">Sin registros todavía</div>')+'</div>'}
+ if(tab=="tic")h+=ticHTML();
+ if(tab=="ped")h+=await pedHTML();
+ if(tab=="cie")h+='<div class="card"><h2>Cierre de caja</h2><div class="row"><span>Ingresos</span><span class="in">'+$$(t.i)+'</span></div><div class="row"><span>Gastos</span><span class="out">'+$$(t.e)+'</span></div><div class="row"><b>Total neto</b><b>'+$$(t.n)+'</b></div>'+byM(E)+'<div class="row"><span>Efectivo esperado en caja</span><b>'+$$(t.cash)+'</b></div><div class="g" style="margin-top:10px"><input id="cnt" type="number" inputmode="decimal" placeholder="Efectivo contado"><input id="hf" type="time" value="'+nowT()+'"></div><button class="p" data-a="close">Cerrar turno</button></div>';
+ $("app").innerHTML=h;var f=$("bc");if(f&&!pend)f.focus()}
+
+/* ---------- Ticket ---------- */
+function cartTot(){return cart.reduce(function(t,x){return t+x.p*x.q},0)}
+function addCart(n,p,q,c){var x=cart.find(function(y){return c?y.c==c:(y.n==n&&y.p==p)});if(x)x.q+=q;else cart.push({n:n,p:p,q:q,c:c||""})}
+async function scanSubmit(c){c=(c||"").trim();if(!c)return;var p=(await sb.from("products").select("*").eq("barcode",c).maybeSingle()).data;if(p){addCart(p.name,Number(p.price),1,c);pend=null}else pend=c;render()}
+function tView(t,items){return '<div class="card" id="ticket"><div style="text-align:center"><b>'+esc(K.name)+'</b><br><span class="mu">Comprobante de compra · no válido como factura</span><br><span class="mu">N.º '+String(t.number).padStart(5,"0")+' · '+ld(new Date(t.created_at))+' '+hm(t.created_at)+'</span></div><hr>'+items.map(function(x){return '<div class="row"><span>'+x.qty+' × '+esc(x.name)+'</span><span>'+$$(x.price*x.qty)+'</span></div>'}).join("")+'<div class="row"><b>TOTAL</b><b>'+$$(t.total)+'</b></div><div class="mu">Pago: '+t.method+' · Atendió: '+esc(nm(t.staff_id))+'</div><div style="text-align:center;margin-top:8px">¡Gracias por tu compra!</div></div>'}
+function ticHTML(){
+ if(lastT)return tView(lastT.t,lastT.items)+'<div class="noprint g"><button data-a="tprint">🖨 Imprimir ticket</button><button class="p" data-a="tnew">Nuevo ticket</button></div>';
+ var h='<div class="card"><h2>Código de barras</h2><div class="mu">Con lector: escaneá y listo. O usá la cámara / escribí el código.</div><div class="g" style="margin-top:8px"><input id="bc" inputmode="numeric" placeholder="Código de barras"><button class="p" data-a="scan">Agregar</button><button data-a="cam">📷 Cámara</button></div><div id="cam"></div>';
+ if(pend)h+='<div class="mu" style="margin-top:8px">Código nuevo '+esc(pend)+': cargalo una sola vez y queda guardado.</div><div class="g"><input id="pn" placeholder="Nombre"><input id="pp" type="number" inputmode="decimal" placeholder="Precio"><button class="p" data-a="saveprod">Guardar y agregar</button></div>';
+ h+='</div><div class="card"><h2>A mano</h2><div class="g"><input id="mn" placeholder="Producto"><input id="mp" type="number" inputmode="decimal" placeholder="Precio"><input id="mq" type="number" value="1"></div><button data-a="madd">Agregar</button></div>';
+ return h+'<div class="card"><h2>Ticket actual</h2>'+(cart.length?cart.map(function(x,i){return '<div class="row"><span>'+x.q+' × '+esc(x.n)+' <span class="mu">'+$$(x.p)+'</span></span><span>'+$$(x.p*x.q)+' <button class="d" data-a="tdel" data-i="'+i+'">✕</button></span></div>'}).join(""):'<div class="mu">Sin productos</div>')+'<div class="row"><b>Total</b><b class="big">'+$$(cartTot())+'</b></div><div class="g"><select id="tm">'+PM.map(function(x){return '<option>'+x+'</option>'}).join("")+'</select><button class="p" data-a="tcob">Cobrar y emitir ticket</button></div></div>'}
+async function cobrar(){if(!cart.length)return;var tt=cartTot(),m=val("tm")||"Efectivo";
+ var t=chk(await sb.from("tickets").insert({kiosk_id:K.id,shift_id:shift.id,staff_id:me.id,method:m,total:tt}).select().single());
+ var items=cart.map(function(x){return{kiosk_id:K.id,ticket_id:t.id,name:x.n,barcode:x.c||null,price:x.p,qty:x.q}});
+ chk(await sb.from("ticket_items").insert(items));
+ chk(await sb.from("entries").insert({kiosk_id:K.id,shift_id:shift.id,kind:"income",concept:"Venta ticket #"+t.number,method:m,amount:tt,ticket_id:t.id}));
+ lastT={t:t,items:items};cart=[]}
+function startCam(){if(!("BarcodeDetector" in window)||!navigator.mediaDevices){alert("Este navegador no soporta escaneo con cámara. Usá un lector o escribí el código.");return}
+ var v=document.createElement("video");v.setAttribute("playsinline","");v.style.cssText="width:100%;border-radius:9px;margin-top:8px";$("cam").appendChild(v);
+ navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}).then(function(st){v.srcObject=st;v.play();var d=new BarcodeDetector(),on=true;(function loop(){if(!on)return;d.detect(v).then(function(r){if(r.length){on=false;st.getTracks().forEach(function(t){t.stop()});scanSubmit(r[0].rawValue)}else setTimeout(loop,300)}).catch(function(){setTimeout(loop,300)})})()}).catch(function(){alert("No se pudo abrir la cámara")})}
+
+/* ---------- Pedidos (hoja única + copias) ---------- */
+function oTxt(items,sup,head){return "Pedido de mercadería"+(head?" – "+head:"")+(sup?" – "+sup:"")+"\n"+items.map(function(x){return "• "+x.qty+" × "+x.name+" (pidió "+nm(x.requested_by)+")"}).join("\n")}
+async function pedHTML(){
+ var it=chk(await sb.from("order_items").select("*").is("batch_id",null).order("created_at"));
+ var B=chk(await sb.from("order_batches").select("*").order("sent_at",{ascending:false}).limit(20));
+ var BI=B.length?chk(await sb.from("order_items").select("*").in("batch_id",B.map(function(b){return b.id}))):[];
+ window._cur=it;
+ var h='<div class="card noprint"><h2>Pedido de mercadería</h2><div class="mu">Una sola hoja para todos: cada ítem muestra quién lo pidió.</div><div class="g" style="margin-top:8px"><input id="it" placeholder="Producto"><input id="q" placeholder="Cantidad"></div><button data-a="additem">+ Agregar a la hoja</button></div><div class="card" id="sheet"><h2>Hoja de pedido</h2>'+(it.length?it.map(function(x){return '<div class="row"><span>'+esc(x.qty)+' × '+esc(x.name)+' <span class="mu">pidió: '+esc(nm(x.requested_by))+'</span></span><button class="d noprint" data-a="delitem" data-id="'+x.id+'">✕</button></div>'}).join(""):'<div class="mu">Hoja vacía</div>')+'<div class="noprint" style="margin-top:10px"><input id="sup" placeholder="Proveedor (opcional)"><div class="g" style="margin-top:8px"><button data-a="print">🖨 Imprimir</button><button data-a="wpp">WhatsApp</button><button data-a="mail">✉ Mail</button><button class="p" data-a="clear">Enviado: guardar copia y vaciar</button></div></div></div>';
+ if(B.length)h+='<div class="card noprint"><h2>Copias de pedidos enviados (resguardo)</h2>'+B.map(function(b){var l=BI.filter(function(x){return x.batch_id==b.id});return '<div style="border-top:1px solid var(--ln);padding:8px 0"><div class="row"><b>'+ld(new Date(b.sent_at))+' '+hm(b.sent_at)+' hs</b><span class="mu">'+esc(b.supplier||"s/proveedor")+' · envió: '+esc(nm(b.sent_by))+'</span></div>'+l.map(function(x){return '<div class="mu">'+esc(x.qty)+' × '+esc(x.name)+' (pidió '+esc(nm(x.requested_by))+')</div>'}).join("")+'<div class="g" style="margin-top:6px"><button data-a="cprint" data-id="'+b.id+'">🖨 Imprimir</button><button data-a="cwpp" data-id="'+b.id+'">WhatsApp</button><button data-a="cmail" data-id="'+b.id+'">✉ Mail</button></div></div>'}).join("")+'</div>';
+ return h}
+async function batchTxt(id){var b=chk(await sb.from("order_batches").select("*").eq("id",id).single());var l=chk(await sb.from("order_items").select("*").eq("batch_id",id));return oTxt(l,b.supplier,ld(new Date(b.sent_at))+" "+hm(b.sent_at)+" hs")}
+function printText(tx){var d=document.createElement("div");d.id="cp";d.innerHTML='<pre style="font:16px monospace;white-space:pre-wrap">'+esc(tx)+'</pre>';document.body.appendChild(d);document.body.className="pk-copy";window.print();document.body.className="";d.remove()}
+
+/* ---------- Dueño ---------- */
+async function adminView(){
+ var h=hdr()+'<div class="tabs">'+[["res","Resumen"],["tur","Turnos"],["per","Personal"],["tic","Tickets"],["ped","Pedidos"],["pro","Productos"],["cta","Cuenta"]].map(function(x){return '<button class="'+(tab==x[0]?"on":"")+'" data-a="tab" data-t="'+x[0]+'">'+x[1]+'</button>'}).join("")+'</div>';
+ if(tab=="res"){var S=chk(await sb.from("shifts").select("*").limit(2000)),E=chk(await sb.from("entries").select("*").limit(5000)),t=tot(E);
+  h+='<div class="card"><div class="mu">Acumulado</div><div class="big">'+$$(t.n)+'</div><div class="mu">Ingresos '+$$(t.i)+' · Gastos '+$$(t.e)+'</div></div><div class="card"><h2>Por empleado</h2>';
+  h+=ST.filter(function(u){return u.role!="admin"}).map(function(u){var ids=S.filter(function(s){return s.staff_id==u.id}).map(function(s){return s.id}),x=tot(E.filter(function(e){return ids.indexOf(e.shift_id)>=0}));return '<div class="row"><span>'+esc(u.name)+' <span class="mu">'+ids.length+' turnos</span></span><span><span class="in">'+$$(x.i)+'</span> / <span class="out">'+$$(x.e)+'</span></span></div>'}).join("")+'</div>';
+  var pay={};E.filter(function(e){return e.kind=="expense"}).forEach(function(e){var k=e.counterpart||"s/d";pay[k]=(pay[k]||0)+Number(e.amount)});
+  h+='<div class="card"><h2>Cobrado por método</h2>'+(byM(E)||'<div class="mu">Sin cobros</div>')+'</div><div class="card"><h2>A quién se le pagó</h2>'+(Object.keys(pay).length?Object.keys(pay).map(function(k){return '<div class="row"><span>'+esc(k)+'</span><span class="out">'+$$(pay[k])+'</span></div>'}).join(""):'<div class="mu">Sin pagos</div>')+'</div>'}
+ if(tab=="tur"){var q=sb.from("shifts").select("*").order("started_at",{ascending:false}).limit(50);if(fdate)q=q.eq("work_date",fdate);var S2=chk(await q),E2=S2.length?chk(await sb.from("entries").select("*").in("shift_id",S2.map(function(s){return s.id})).order("created_at")):[];
+  h+='<div class="card"><div class="g"><input id="fd" type="date" value="'+fdate+'"><button data-a="fdate">Filtrar por día</button><button data-a="fall">Ver todo</button></div></div>';
+  h+=S2.length?S2.map(function(s){var es=E2.filter(function(e){return e.shift_id==s.id}),t=tot(es);return '<div class="card"><div class="row"><b>'+esc(nm(s.staff_id))+'</b><span class="mu">'+s.work_date+' · '+hm(s.started_at)+'–'+(s.ended_at?hm(s.ended_at):"abierto")+'</span></div>'+es.map(function(e){return e.kind=="income"?'<div class="row"><span>'+esc(e.concept)+' <span class="mu">'+(e.method||"")+(e.counterpart?' · pagó: '+esc(e.counterpart):'')+'</span></span><span class="in">'+$$(e.amount)+'</span></div>':'<div class="row"><span>'+esc(e.concept)+' <span class="mu">pagó '+esc(nm(s.staff_id))+' → '+esc(e.counterpart||"s/d")+'</span></span><span class="out">−'+$$(e.amount)+'</span></div>'}).join("")+byM(es)+'<div class="row"><b>Neto</b><b>'+$$(t.n)+'</b></div>'+(s.counted_cash!=null?'<div class="mu">Contado '+$$(s.counted_cash)+' · diferencia '+$$(s.counted_cash-t.cash)+'</div>':'')+'</div>'}).join(""):'<div class="card mu">No hay turnos</div>'}
+ if(tab=="per")h+='<div class="card"><h2>Personal</h2>'+ST.map(function(u){return '<div class="row"><span>'+esc(u.name)+' <span class="mu">'+(u.role=="admin"?"administrador":"empleado")+(u.active?"":" · dado de baja")+'</span></span>'+(u.role!="admin"&&u.active?'<button class="d" data-a="staffoff" data-id="'+u.id+'">Dar de baja</button>':'')+'</div>'}).join("")+'<div class="g" style="margin-top:10px"><input id="nu" placeholder="Nombre del empleado"><button class="p" data-a="staffadd">Agregar</button></div></div>';
+ if(tab=="tic"){var T=chk(await sb.from("tickets").select("*, ticket_items(*)").order("created_at",{ascending:false}).limit(40));
+  h+=T.length?T.map(function(t){return '<div class="card"><div class="row"><b>#'+t.number+' · '+esc(nm(t.staff_id))+'</b><span class="mu">'+ld(new Date(t.created_at))+' '+hm(t.created_at)+' · '+t.method+'</span></div>'+t.ticket_items.map(function(x){return '<div class="row"><span>'+x.qty+' × '+esc(x.name)+'</span><span>'+$$(x.price*x.qty)+'</span></div>'}).join("")+'<div class="row"><b>Total</b><b class="in">'+$$(t.total)+'</b></div></div>'}).join(""):'<div class="card mu">Todavía no hay tickets</div>'}
+ if(tab=="ped")h+=await pedHTML();
+ if(tab=="pro"){var P=chk(await sb.from("products").select("*").order("name"));
+  h+='<div class="card"><h2>Catálogo de productos</h2><div class="mu">Los códigos escaneados por primera vez se guardan solos. Acá podés cargar y corregir precios.</div><div class="g" style="margin-top:8px"><input id="pc" placeholder="Código de barras"><input id="pn2" placeholder="Nombre"><input id="pq" type="number" inputmode="decimal" placeholder="Precio"></div><button class="p" data-a="prnew">Guardar producto</button></div><div class="card">'+(P.length?P.map(function(p){return '<div class="row"><span>'+esc(p.name)+' <span class="mu">'+esc(p.barcode)+'</span></span><span><input id="pr'+p.id+'" type="number" value="'+p.price+'" style="width:90px"> <button data-a="prsave" data-id="'+p.id+'">OK</button> <button class="d" data-a="prdel" data-id="'+p.id+'">✕</button></span></div>'}).join(""):'<div class="mu">Todavía no hay productos</div>')+'</div>'}
+ if(tab=="cta"){var pl={trial:"Prueba gratis",active:"Activa",past_due:"Pago pendiente",canceled:"Cancelada"};
+  h+='<div class="card"><h2>Mi kiosco</h2><div class="g"><input id="kn" value="'+esc(K.name)+'"><button data-a="acname">Guardar nombre</button></div></div><div class="card"><h2>Plan Kiosco Completo</h2><div class="big">'+$$(PRICE)+' <span class="mu">/ mes</span></div><div class="row"><b>Estado</b><b>'+pl[K.plan]+'</b></div>'+(K.plan=="trial"?'<div class="mu">La prueba termina el '+ld(new Date(K.trial_ends_at))+'</div>':'')+'<button class="p" data-a="subinfo" style="margin-top:8px">Suscribirme con Mercado Pago</button></div><div class="card"><h2>Mercado Pago del kiosco</h2><div class="mu">La vinculación de la cuenta y el cobro con QR se activan en una próxima etapa (necesitan un servidor aparte).</div></div>'}
+ $("app").innerHTML=h}
+
+/* ---------- Render y acciones ---------- */
+async function render(){if(!sb)return;try{if(!K)loginView();else if(!me)pickView();else if(me.role=="admin")await adminView();else await empView()}catch(e){console.error(e)}}
+document.addEventListener("click",async function(ev){
+ var b=ev.target.closest("[data-a]");if(!b||!sb)return;var a=b.dataset.a,id=b.dataset.id,i=+b.dataset.i;
+ try{
+ if(a=="mode")mode=mode=="signup"?"login":"signup";
+ else if(a=="login"){await doLogin();return}
+ else if(a=="signup"){await doSignup();return}
+ else if(a=="logout"){await sb.auth.signOut();K=null;me=null;shift=null;cart=[];lastT=null;pinFor=null;mode="login"}
+ else if(a=="switch"){me=null;shift=null;cart=[];lastT=null;pinFor=null}
+ else if(a=="pick"){var u=ST.find(function(x){return x.id==id});if(u.role=="admin")pinFor=u;else await enter(u)}
+ else if(a=="pin"){var p=val("pin");if(!/^\d{4,6}$/.test(p)){alert("El PIN son 4 a 6 números");return}var hs=await hash(p,pinFor.id);
+  if(!pinFor.pin_hash){chk(await sb.from("staff").update({pin_hash:hs}).eq("id",pinFor.id));pinFor.pin_hash=hs}else if(pinFor.pin_hash!=hs){alert("PIN incorrecto");return}
+  var ad=pinFor;pinFor=null;await enter(ad)}
+ else if(a=="tab")tab=b.dataset.t;
+ else if(a=="start"){var d=new Date(),pt=(val("hs")||nowT()).split(":");d.setHours(+pt[0],+pt[1],0,0);shift=chk(await sb.from("shifts").insert({kiosk_id:K.id,staff_id:me.id,work_date:ld(d),started_at:d.toISOString()}).select().single());tab="inc"}
+ else if(a=="addentry"){var n=parseFloat(val("a")),inc=tab=="inc";if(!(n>0)||!val("c")){alert("Completá concepto y monto");return}
+  chk(await sb.from("entries").insert({kiosk_id:K.id,shift_id:shift.id,kind:inc?"income":"expense",concept:val("c"),method:inc?val("m"):null,counterpart:val("w")||null,amount:n}))}
+ else if(a=="delentry")chk(await sb.from("entries").delete().eq("id",id));
+ else if(a=="scan"){await scanSubmit(val("bc"));return}
+ else if(a=="cam"){startCam();return}
+ else if(a=="madd"){var mp=parseFloat(val("mp")),mq=parseFloat(val("mq"))||1;if(!val("mn")||!(mp>=0)||val("mp")===""){alert("Completá producto y precio");return}addCart(val("mn"),mp,mq,"")}
+ else if(a=="saveprod"){var pp=parseFloat(val("pp"));if(!val("pn")||!(pp>=0)||val("pp")===""){alert("Completá nombre y precio");return}
+  chk(await sb.from("products").upsert({kiosk_id:K.id,barcode:pend,name:val("pn"),price:pp},{onConflict:"kiosk_id,barcode"}));addCart(val("pn"),pp,1,pend);pend=null}
+ else if(a=="tdel")cart.splice(i,1);
+ else if(a=="tcob")await cobrar();
+ else if(a=="tprint"){document.body.className="pk-ticket";window.print();document.body.className="";return}
+ else if(a=="tnew")lastT=null;
+ else if(a=="additem"){if(!val("it"))return;chk(await sb.from("order_items").insert({kiosk_id:K.id,name:val("it"),qty:val("q")||"1",requested_by:me.id}))}
+ else if(a=="delitem")chk(await sb.from("order_items").delete().eq("id",id));
+ else if(a=="print"){document.body.className="pk-sheet";window.print();document.body.className="";return}
+ else if(a=="wpp"){window.open("https://wa.me/?text="+encodeURIComponent(oTxt(window._cur||[],val("sup"),"")),"_blank");return}
+ else if(a=="mail"){window.open("mailto:?subject="+encodeURIComponent("Pedido de mercadería")+"&body="+encodeURIComponent(oTxt(window._cur||[],val("sup"),"")),"_blank");return}
+ else if(a=="clear"){if(!(window._cur||[]).length||!confirm("¿Marcar como enviado y vaciar la hoja?"))return;
+  var bt=chk(await sb.from("order_batches").insert({kiosk_id:K.id,sent_by:me.id,supplier:val("sup")||null}).select().single());
+  chk(await sb.from("order_items").update({batch_id:bt.id}).eq("kiosk_id",K.id).is("batch_id",null));alert("Copia guardada con fecha y hora en el resguardo")}
+ else if(a=="cprint"){printText(await batchTxt(id));return}
+ else if(a=="cwpp"){window.open("https://wa.me/?text="+encodeURIComponent(await batchTxt(id)),"_blank");return}
+ else if(a=="cmail"){window.open("mailto:?subject="+encodeURIComponent("Copia de pedido de mercadería")+"&body="+encodeURIComponent(await batchTxt(id)),"_blank");return}
+ else if(a=="close"){if(!confirm("¿Cerrar el turno?"))return;var c=val("cnt"),e2=new Date(),pf=(val("hf")||nowT()).split(":");e2.setHours(+pf[0],+pf[1],0,0);
+  chk(await sb.from("shifts").update({ended_at:e2.toISOString(),counted_cash:c===""?null:parseFloat(c)}).eq("id",shift.id));shift=null;tab="inc"}
+ else if(a=="fdate")fdate=val("fd");
+ else if(a=="fall")fdate="";
+ else if(a=="staffadd"){if(!val("nu"))return;chk(await sb.from("staff").insert({kiosk_id:K.id,name:val("nu"),role:"emp"}));ST=chk(await sb.from("staff").select("*").order("created_at"))}
+ else if(a=="staffoff"){if(!confirm("¿Dar de baja al empleado? Sus turnos se conservan."))return;chk(await sb.from("staff").update({active:false}).eq("id",id));ST=chk(await sb.from("staff").select("*").order("created_at"))}
+ else if(a=="prnew"){var pq=parseFloat(val("pq"));if(!val("pc")||!val("pn2")||!(pq>=0)||val("pq")===""){alert("Completá código, nombre y precio");return}chk(await sb.from("products").upsert({kiosk_id:K.id,barcode:val("pc"),name:val("pn2"),price:pq},{onConflict:"kiosk_id,barcode"}))}
+ else if(a=="prsave"){var v2=parseFloat(val("pr"+id));if(v2>=0)chk(await sb.from("products").update({price:v2}).eq("id",id))}
+ else if(a=="prdel")chk(await sb.from("products").delete().eq("id",id));
+ else if(a=="acname"){chk(await sb.from("kiosks").update({name:val("kn")||K.name}).eq("id",K.id));K=chk(await sb.from("kiosks").select("*").single())}
+ else if(a=="subinfo"){alert("El cobro de la suscripción se activa en la próxima etapa, cuando esté conectado Mercado Pago.");return}
+ }catch(e){console.error(e);return}
+ render()});
+document.addEventListener("keydown",function(e){if(e.key=="Enter"&&e.target.id=="bc"){e.preventDefault();scanSubmit(e.target.value)}});
+(async function init(){
+ if(/PEGAR/.test(SUPABASE_URL+SUPABASE_KEY)){$("app").innerHTML='<div class="card"><h2>Falta configurar</h2><div class="mu">Abrí este archivo y pegá la URL y la clave pública de tu proyecto de Supabase en las dos primeras líneas de la sección CONFIGURACIÓN.</div></div>';return}
+ sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+ var s=(await sb.auth.getSession()).data.session;if(s)await loadKiosk();render()})();
+</script>
+</body>
+</html>
