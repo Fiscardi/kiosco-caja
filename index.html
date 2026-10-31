@@ -225,7 +225,7 @@ document.addEventListener("click",async function(ev){
  else if(a=="acname"){chk(await sb.from("kiosks").update({name:val("kn")||K.name}).eq("id",K.id));K=chk(await sb.from("kiosks").select("*").single())}
  else if(a=="subgo"){var rs=await wk("/subscribe");if(rs.init_point){location.href=rs.init_point;return}alert((rs.error||"No se pudo iniciar la suscripción")+(rs.detail?"\n\nDetalle: "+rs.detail:""));return}
  else if(a=="subcancel"){if(!confirm("¿Cancelar la suscripción?"))return;var rc=await wk("/cancel");if(rc.ok){alert("Suscripción cancelada");K=chk(await sb.from("kiosks").select("*").single())}else{alert(rc.error||"No se pudo cancelar");return}}
- else if(a=="subrefresh"){K=chk(await sb.from("kiosks").select("*").single())}
+ else if(a=="subrefresh"){if(K.mp_preapproval_id){var rf=await wk("/sync");if(rf.error&&!/No hay suscripcion/.test(rf.error))alert(rf.error)}K=chk(await sb.from("kiosks").select("*").single())}
  }catch(e){console.error(e);return}
  render()});
 document.addEventListener("keydown",function(e){if(e.key=="Enter"&&e.target.id=="bc"){e.preventDefault();scanSubmit(e.target.value)}});
