@@ -233,7 +233,9 @@ document.addEventListener("keydown",function(e){if(e.key=="Enter"&&e.target.id==
  if(typeof SUPABASE_URL=="undefined"||/PEGAR/.test(SUPABASE_URL+SUPABASE_KEY)){$("app").innerHTML='<div class="card"><h2>Falta configurar</h2><div class="mu">Falta el archivo config.js con la URL y la clave pública de tu proyecto de Supabase (está en la carpeta app).</div></div>';return}
  sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
  sb.auth.onAuthStateChange(function(ev){if(ev=="PASSWORD_RECOVERY"){mode="recovery";K=null;me=null;render()}});
- if(!REC){var s=(await sb.auth.getSession()).data.session;if(s)await loadKiosk()}
+ if(!REC){var s=(await sb.auth.getSession()).data.session;if(s){await loadKiosk();
+  /* Al volver de Mercado Pago (la URL trae preapproval_id) se consulta el estado real y se actualiza solo */
+  if(/[?&]preapproval_id=/.test(location.search)&&K&&K.mp_preapproval_id){try{await wk("/sync");await loadKiosk()}catch(e){console.error(e)}}}}
  render()})();
 </script>
 </body>
