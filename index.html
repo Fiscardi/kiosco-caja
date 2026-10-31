@@ -31,13 +31,12 @@ input,select{font:inherit;width:100%;padding:9px;border:1px solid var(--ln);bord
 <body>
 <main id="app"></main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <script>
-/* ====== CONFIGURACIÓN: pegá acá los datos de tu proyecto de Supabase ====== */
-var SUPABASE_URL="https://gzjsoukjdhojxijbxqdx.supabase.co";
-var SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6anNvdWtqZGhvanhpamJ4cWR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNzQ1NDQsImV4cCI6MjEwODk1MDU0NH0.STis3Jj3-Epde8B6by3RFeGlyk7m_xTMKqefAVHvRKY";
+/* La URL y la clave de Supabase están en el archivo config.js */
 var PRICE=40000;
 /* ========================================================================== */
-var sb,K=null,ST=[],me=null,shift=null,tab="",cart=[],pend=null,lastT=null,fdate="",mode="login",pinFor=null;
+var sb,K=null,ST=[],me=null,shift=null,tab="",cart=[],pend=null,lastT=null,fdate="",REC=/type=recovery/.test(location.hash),mode=REC?"recovery":"login",pinFor=null,pinForgot=false;
 var PM=["Efectivo","Transferencia","Tarjeta","Mercado Pago"],PMC=PM.concat(["Cuenta corriente"]),cust=[];
 function cn(id){var c=cust.find(function(x){return x.id==id});return c?c.name:""}
 function $(i){return document.getElementById(i)}
@@ -61,9 +60,14 @@ async function doLogin(){var r=await sb.auth.signInWithPassword({email:val("em")
 async function doSignup(){var r=await sb.auth.signUp({email:val("em"),password:val("pw"),options:{data:{kiosk_name:val("kn")||"Mi kiosco"}}});if(r.error){alert(r.error.message);return}
  if(!r.data.session){alert("Te enviamos un mail para confirmar la cuenta. Confirmalo y después entrá.");mode="login";render();return}await loadKiosk();render()}
 async function enter(u){me=u;tab=u.role=="admin"?"res":"tic";shift=null;if(u.role!="admin"){shift=(await sb.from("shifts").select("*").eq("staff_id",u.id).is("ended_at",null).maybeSingle()).data}}
-function loginView(){var su=mode=="signup";$("app").innerHTML=hdr()+'<div class="card"><h2>'+(su?'Crear cuenta del kiosco':'Entrar al kiosco')+'</h2>'+(su?'<input id="kn" placeholder="Nombre del kiosco" style="margin-bottom:8px">':'')+'<input id="em" type="email" placeholder="Mail del dueño" style="margin-bottom:8px"><input id="pw" type="password" placeholder="Contraseña (mínimo 6)" style="margin-bottom:8px"><div class="g"><button class="p" data-a="'+(su?'signup':'login')+'">'+(su?'Crear cuenta':'Entrar')+'</button><button data-a="mode">'+(su?'Ya tengo cuenta':'Crear cuenta nueva')+'</button></div></div>'}
+function loginView(){var h=hdr();
+ if(mode=="recovery")h+='<div class="card"><h2>Elegí tu nueva contraseña</h2><input id="pw" type="password" placeholder="Nueva contraseña (mínimo 6)" style="margin-bottom:8px"><input id="pw2" type="password" placeholder="Repetí la contraseña" style="margin-bottom:8px"><button class="p" data-a="setpw">Guardar contraseña</button></div>';
+ else if(mode=="forgot")h+='<div class="card"><h2>Recuperar contraseña</h2><div class="mu">Te enviamos un enlace al mail del dueño para elegir una contraseña nueva.</div><input id="em" type="email" placeholder="Mail del dueño" style="margin:8px 0"><div class="g"><button class="p" data-a="sendreset">Enviar enlace</button><button data-a="mode">Volver</button></div></div>';
+ else{var su=mode=="signup";h+='<div class="card"><h2>'+(su?'Crear cuenta del kiosco':'Entrar al kiosco')+'</h2>'+(su?'<input id="kn" placeholder="Nombre del kiosco" style="margin-bottom:8px">':'')+'<input id="em" type="email" placeholder="Mail del dueño" style="margin-bottom:8px"><input id="pw" type="password" placeholder="Contraseña (mínimo 6)" style="margin-bottom:8px"><div class="g"><button class="p" data-a="'+(su?'signup':'login')+'">'+(su?'Crear cuenta':'Entrar')+'</button><button data-a="mode">'+(su?'Ya tengo cuenta':'Crear cuenta nueva')+'</button></div>'+(su?'':'<button data-a="forgot" style="margin-top:4px">¿Olvidaste tu contraseña?</button>')+'</div>'}
+ $("app").innerHTML=h}
 function pickView(){var h=hdr()+'<div class="card"><h2>¿Quién sos?</h2><div class="users">'+ST.filter(function(x){return x.active}).map(function(u){return '<button data-a="pick" data-id="'+u.id+'">'+(u.role=="admin"?"🔑 ":"👤 ")+esc(u.name)+'</button>'}).join("")+'</div>';
  if(pinFor){var nw=!pinFor.pin_hash;h+='<div style="margin-top:12px"><div class="mu">'+(nw?'Primera vez: elegí un PIN de 4 a 6 números':'PIN del administrador')+'</div><div class="g"><input id="pin" type="password" inputmode="numeric" maxlength="6"><button class="p" data-a="pin">'+(nw?'Guardar PIN y entrar':'Entrar')+'</button></div></div>'}
+ if(pinFor&&pinFor.pin_hash)h+=pinForgot?'<div style="margin-top:12px"><div class="mu">Para elegir un PIN nuevo, escribí la contraseña de la cuenta del kiosco</div><div class="g"><input id="pwx" type="password"><button class="p" data-a="resetpin">Cambiar PIN</button></div></div>':'<div style="margin-top:8px"><button data-a="forgotpin">Olvidé mi PIN</button></div>';
  $("app").innerHTML=h+'</div>'}
 
 /* ---------- Empleado ---------- */
@@ -163,12 +167,17 @@ async function render(){if(!sb)return;try{if(!K)loginView();else if(!me)pickView
 document.addEventListener("click",async function(ev){
  var b=ev.target.closest("[data-a]");if(!b||!sb)return;var a=b.dataset.a,id=b.dataset.id,i=+b.dataset.i;
  try{
- if(a=="mode")mode=mode=="signup"?"login":"signup";
+ if(a=="mode")mode=mode=="login"?"signup":"login";
+ else if(a=="forgot")mode="forgot";
+ else if(a=="sendreset"){var em=val("em");if(!em){alert("Escribí el mail");return}var rr=await sb.auth.resetPasswordForEmail(em,{redirectTo:location.origin+location.pathname});if(rr.error){alert(rr.error.message);return}alert("Si el mail está registrado, te enviamos un enlace. Revisá también la carpeta de spam.");mode="login"}
+ else if(a=="setpw"){var p1=val("pw"),p2=val("pw2");if(p1.length<6||p1!=p2){alert("La contraseña debe tener al menos 6 caracteres y ser igual en los dos campos");return}var ur=await sb.auth.updateUser({password:p1});if(ur.error){alert(ur.error.message);return}history.replaceState(null,"",location.pathname);mode="login";alert("Contraseña cambiada");await loadKiosk()}
+ else if(a=="forgotpin")pinForgot=true;
+ else if(a=="resetpin"){var u0=(await sb.auth.getUser()).data.user,pwx=val("pwx");if(!pwx){alert("Escribí la contraseña de la cuenta");return}var ck=await sb.auth.signInWithPassword({email:u0.email,password:pwx});if(ck.error){alert("Contraseña incorrecta");return}chk(await sb.from("staff").update({pin_hash:null}).eq("id",pinFor.id));pinFor.pin_hash=null;pinForgot=false;alert("Listo: elegí un PIN nuevo")}
  else if(a=="login"){await doLogin();return}
  else if(a=="signup"){await doSignup();return}
  else if(a=="logout"){await sb.auth.signOut();K=null;me=null;shift=null;cart=[];lastT=null;pinFor=null;mode="login"}
  else if(a=="switch"){me=null;shift=null;cart=[];lastT=null;pinFor=null}
- else if(a=="pick"){var u=ST.find(function(x){return x.id==id});if(u.role=="admin")pinFor=u;else await enter(u)}
+ else if(a=="pick"){pinForgot=false;var u=ST.find(function(x){return x.id==id});if(u.role=="admin")pinFor=u;else await enter(u)}
  else if(a=="pin"){var p=val("pin");if(!/^\d{4,6}$/.test(p)){alert("El PIN son 4 a 6 números");return}var hs=await hash(p,pinFor.id);
   if(!pinFor.pin_hash){chk(await sb.from("staff").update({pin_hash:hs}).eq("id",pinFor.id));pinFor.pin_hash=hs}else if(pinFor.pin_hash!=hs){alert("PIN incorrecto");return}
   var ad=pinFor;pinFor=null;await enter(ad)}
@@ -218,9 +227,11 @@ document.addEventListener("click",async function(ev){
  render()});
 document.addEventListener("keydown",function(e){if(e.key=="Enter"&&e.target.id=="bc"){e.preventDefault();scanSubmit(e.target.value)}});
 (async function init(){
- if(/PEGAR/.test(SUPABASE_URL+SUPABASE_KEY)){$("app").innerHTML='<div class="card"><h2>Falta configurar</h2><div class="mu">Abrí este archivo y pegá la URL y la clave pública de tu proyecto de Supabase en las dos primeras líneas de la sección CONFIGURACIÓN.</div></div>';return}
+ if(typeof SUPABASE_URL=="undefined"||/PEGAR/.test(SUPABASE_URL+SUPABASE_KEY)){$("app").innerHTML='<div class="card"><h2>Falta configurar</h2><div class="mu">Falta el archivo config.js con la URL y la clave pública de tu proyecto de Supabase (está en la carpeta app).</div></div>';return}
  sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
- var s=(await sb.auth.getSession()).data.session;if(s)await loadKiosk();render()})();
+ sb.auth.onAuthStateChange(function(ev){if(ev=="PASSWORD_RECOVERY"){mode="recovery";K=null;me=null;render()}});
+ if(!REC){var s=(await sb.auth.getSession()).data.session;if(s)await loadKiosk()}
+ render()})();
 </script>
 </body>
 </html>
