@@ -35,6 +35,7 @@ input,select{font:inherit;width:100%;padding:9px;border:1px solid var(--ln);bord
 <script>
 /* La URL y la clave de Supabase están en el archivo config.js */
 var PRICE=40000;
+async function wk(path){try{var ss=(await sb.auth.getSession()).data.session;var r=await fetch(WORKER_URL+path,{method:"POST",headers:{"Authorization":"Bearer "+ss.access_token,"Content-Type":"application/json"}});return await r.json()}catch(e){return{error:"No se pudo conectar con el servidor"}}}
 /* ========================================================================== */
 var sb,K=null,ST=[],me=null,shift=null,tab="",cart=[],pend=null,lastT=null,fdate="",REC=/type=recovery/.test(location.hash),mode=REC?"recovery":"login",pinFor=null,pinForgot=false;
 var PM=["Efectivo","Transferencia","Tarjeta","Mercado Pago"],PMC=PM.concat(["Cuenta corriente"]),cust=[];
@@ -159,7 +160,7 @@ async function adminView(){
  if(tab=="pro"){var P=chk(await sb.from("products").select("*").order("name"));
   h+='<div class="card"><h2>Catálogo de productos</h2><div class="mu">Los códigos escaneados por primera vez se guardan solos. Acá podés cargar y corregir precios.</div><div class="g" style="margin-top:8px"><input id="pc" placeholder="Código de barras"><input id="pn2" placeholder="Nombre"><input id="pq" type="number" inputmode="decimal" placeholder="Precio"></div><button class="p" data-a="prnew">Guardar producto</button></div><div class="card">'+(P.length?P.map(function(p){return '<div class="row"><span>'+esc(p.name)+' <span class="mu">'+esc(p.barcode)+'</span></span><span><input id="pr'+p.id+'" type="number" value="'+p.price+'" style="width:90px"> <button data-a="prsave" data-id="'+p.id+'">OK</button> <button class="d" data-a="prdel" data-id="'+p.id+'">✕</button></span></div>'}).join(""):'<div class="mu">Todavía no hay productos</div>')+'</div>'}
  if(tab=="cta"){var pl={trial:"Prueba gratis",active:"Activa",past_due:"Pago pendiente",canceled:"Cancelada"};
-  h+='<div class="card"><h2>Mi kiosco</h2><div class="g"><input id="kn" value="'+esc(K.name)+'"><button data-a="acname">Guardar nombre</button></div></div><div class="card"><h2>Plan Kiosco Completo</h2><div class="big">'+$$(PRICE)+' <span class="mu">/ mes</span></div><div class="row"><b>Estado</b><b>'+pl[K.plan]+'</b></div>'+(K.plan=="trial"?'<div class="mu">La prueba termina el '+ld(new Date(K.trial_ends_at))+'</div>':'')+'<button class="p" data-a="subinfo" style="margin-top:8px">Suscribirme con Mercado Pago</button></div><div class="card"><h2>Mercado Pago del kiosco</h2><div class="mu">La vinculación de la cuenta y el cobro con QR se activan en una próxima etapa (necesitan un servidor aparte).</div></div>'}
+  h+='<div class="card"><h2>Mi kiosco</h2><div class="g"><input id="kn" value="'+esc(K.name)+'"><button data-a="acname">Guardar nombre</button></div></div><div class="card"><h2>Plan Kiosco Completo</h2><div class="big">'+$$(PRICE)+' <span class="mu">/ mes</span></div><div class="row"><b>Estado</b><b>'+pl[K.plan]+'</b></div>'+(K.plan=="trial"?'<div class="mu">La prueba termina el '+ld(new Date(K.trial_ends_at))+'</div>':'')+''+(K.plan=="active"?(K.plan_next_charge?'<div class="mu">Próximo cobro: '+ld(new Date(K.plan_next_charge+"T12:00:00"))+'</div>':'')+'<button class="d" data-a="subcancel" style="margin-top:8px">Cancelar suscripción</button>':'<button class="p" data-a="subgo" style="margin-top:8px">Suscribirme con Mercado Pago</button>')+'<button data-a="subrefresh" style="margin-top:8px">Actualizar estado</button></div><div class="card"><h2>Mercado Pago del kiosco</h2><div class="mu">La vinculación de la cuenta y el cobro con QR se activan en una próxima etapa (necesitan un servidor aparte).</div></div>'}
  $("app").innerHTML=h}
 
 /* ---------- Render y acciones ---------- */
@@ -222,7 +223,9 @@ document.addEventListener("click",async function(ev){
  else if(a=="prsave"){var v2=parseFloat(val("pr"+id));if(v2>=0)chk(await sb.from("products").update({price:v2}).eq("id",id))}
  else if(a=="prdel")chk(await sb.from("products").delete().eq("id",id));
  else if(a=="acname"){chk(await sb.from("kiosks").update({name:val("kn")||K.name}).eq("id",K.id));K=chk(await sb.from("kiosks").select("*").single())}
- else if(a=="subinfo"){alert("El cobro de la suscripción se activa en la próxima etapa, cuando esté conectado Mercado Pago.");return}
+ else if(a=="subgo"){var rs=await wk("/subscribe");if(rs.init_point){location.href=rs.init_point;return}alert(rs.error||"No se pudo iniciar la suscripción");return}
+ else if(a=="subcancel"){if(!confirm("¿Cancelar la suscripción?"))return;var rc=await wk("/cancel");if(rc.ok){alert("Suscripción cancelada");K=chk(await sb.from("kiosks").select("*").single())}else{alert(rc.error||"No se pudo cancelar");return}}
+ else if(a=="subrefresh"){K=chk(await sb.from("kiosks").select("*").single())}
  }catch(e){console.error(e);return}
  render()});
 document.addEventListener("keydown",function(e){if(e.key=="Enter"&&e.target.id=="bc"){e.preventDefault();scanSubmit(e.target.value)}});
